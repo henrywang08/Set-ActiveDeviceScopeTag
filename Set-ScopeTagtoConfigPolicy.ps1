@@ -4,7 +4,8 @@
     "Microsoft.Graph.Authentication",
     "Microsoft.Graph.DeviceManagement",
     "Microsoft.Graph.Beta.DeviceManagement",
-    "Microsoft.Graph.Beta.Authentication"
+    "Microsoft.Graph.Beta.Authentication",
+    "Microsoft.Graph.Beta.DeviceManagement.Administration"
   )
 
   $modules = @()
@@ -23,8 +24,14 @@ foreach ($module in $modules) {
     }
     else {
         Write-Host "$($module.Name) version $($module.Version) is already installed. Skipping installation."
+        Remove-Module $($module.Name)  -Force -ErrorAction SilentlyContinue
     }
 }
+
+  foreach ($moduleName in $moduleNames) {
+    "Loading $moduleName..."  
+    Import-Module -Name $moduleName -ErrorAction SilentlyContinue
+  }
 
 
 function Update-ScopeTagsforDeviceConfigPolicy {
@@ -83,106 +90,24 @@ try {
 
 # Filter by display name (case-insensitive -like)
 $matchingPolicies = $allPolicies | Where-Object {
-    $display = $_.displayName
-    if (-not $display) { $display = $_.DisplayName }
+    $display = $_.Name
+    if (-not $display) { $display = $_.Name }
     $display -like $policyNamePattern
 }
 
 Write-Host "Found $($matchingPolicies.Count) matching configuration policy(ies):"
 foreach ($p in $matchingPolicies) {
-    $pName = ($p.displayName -or $p.DisplayName)
+    $pName = $p.Name 
     Write-Host "- $pName ($($p.id))"
 }
 
-
-# Remove "Active Device" scope tag from inactive devices
-$daysInactive = 14
-$cutoffDate = (Get-Date).AddDays(-$daysInactive)
-
-$inactiveDevices = $devices | Where-Object {
-    $_.LastSyncDateTime -lt $cutoffDate 
-}
-
-
-# Remove the scope tag from the list
-foreach ($device in $inactiveDevices) {
-    $devicewithTag = Get-MgBetaDeviceManagementManagedDevice -ManagedDeviceId $($device.id) -Property "id,DeviceName,roleScopeTagIds"
-    if ($devicewithTag.RoleScopeTagIds -contains $scopeTagId) {
-        $currentTags = $devicewithTag.roleScopeTagIds
-        $updatedTags = $currentTags | Where-Object { $_ -ne $scopeTagId }
-        $deviceId = $devicewithTag.Id
-
-        Update-DeviceScopeTags -updatedTags $updatedTags -deviceId $deviceId
-<#
-        $updatedTags = @($updatedTags) | Where-Object { $_ -ne $null }
-        # Step 2: Build hashtable
-        $bodyHash = @{
-            roleScopeTagIds = @($updatedTags)
-        }
-
-        # Step 3: Convert to JSON - IMPORTANT: Use -Compress to keep it clean
-        $bodyJson = $bodyHash | ConvertTo-Json  -Compress
-
-        # (Optional) Inspect JSON before sending
-        Write-Host "PATCH Body:" $bodyJson
-
-
-        # Step 4: Send PATCH to Graph
-        Invoke-MgGraphRequest -Method PATCH `
-            -Uri "https://graph.microsoft.com/beta/deviceManagement/managedDevices/$deviceId" `
-            -Body $bodyJson `
-            -ContentType "application/json" 
-#>
-
-        Write-Host "Removed 'Active Device' scope tag from device: $($devicewithTag.DeviceName)"
-    } else {
-        Write-Host "Device $($devicewithTag.DeviceName) does not have the 'Active Device' scope tag."
-        continue
-    }
+# Set the matching configuration policy with specific scope tags
+foreach ($policy in $matchingPolicies) {
+     $policyId = $p.id
+   # $policyId = $policy.I
+    $updatedTags = @($scopeTagId)
+    Write-Host "The current Scope Tags for policy '$($p.Name)' ($policyId): $($p.roleScopeTagIds -join ', ')"
+    Update-ScopeTagsforDeviceConfigPolicy -updatedTags $updatedTags -policyId $policyId
 
 }
 
-
-# Assign "Active Device" scope tag for active devices
-$daysInactive = 14
-$cutoffDate = (Get-Date).AddDays(-$daysInactive)
-
-$activeDevices = $devices | Where-Object {
-    $_.LastSyncDateTime -ge $cutoffDate 
-}
-
-foreach ($device in $activeDevices){
-    $devicewithTag = Get-MgBetaDeviceManagementManagedDevice -ManagedDeviceId $($device.id) -Property "id,DeviceName,roleScopeTagIds"
-    if ($devicewithTag.RoleScopeTagIds -notcontains $scopeTagId) {
-        $currentTags = $devicewithTag.roleScopeTagIds
-        $updatedTags = $currentTags + $scopeTagId
-        $deviceId = $devicewithTag.Id
-
-        Update-DeviceScopeTags -updatedTags $updatedTags -deviceId $deviceId
-<# 
-        $updatedTags = @($updatedTags) | Where-Object { $_ -ne $null }
-        # Step 2: Build hashtable
-        $bodyHash = @{
-            roleScopeTagIds = @($updatedTags)
-        }
-
-        # Step 3: Convert to JSON - IMPORTANT: Use -Compress to keep it clean
-        $bodyJson = $bodyHash | ConvertTo-Json  -Compress
-
-        # (Optional) Inspect JSON before sending
-        Write-Host "PATCH Body:" $bodyJson
-
-
-        # Step 4: Send PATCH to Graph
-        Invoke-MgGraphRequest -Method PATCH `
-            -Uri "https://graph.microsoft.com/beta/deviceManagement/managedDevices/$deviceId" `
-            -Body $bodyJson `
-            -ContentType "application/json" 
-  #>
-
-        Write-Host "Add 'Active Device' scope tag to device: $($devicewithTag.DeviceName)"
-    } else {
-        Write-Host "Device $($devicewithTag.DeviceName) already has the 'Active Device' scope tag."
-        continue
-    }
-}

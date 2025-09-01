@@ -103,10 +103,10 @@ foreach ($p in $matchingPolicies) {
 
 # Set the matching configuration policy with specific scope tags
 foreach ($policy in $matchingPolicies) {
-     $policyId = $p.id
-   # $policyId = $policy.I
+   #   $policyId = $p.id
+    $policyId = $policy.Id
     $updatedTags = @($scopeTagId)
-    Write-Host "The current Scope Tags for policy '$($p.Name)' ($policyId): $($p.roleScopeTagIds -join ', ')"
+    Write-Host "The Scope Tags before change for policy '$($policy.Name)' ($policyId): $($policy.roleScopeTagIds -join ', ')"
     Update-ScopeTagsforDeviceConfigPolicy -updatedTags $updatedTags -policyId $policyId
 
 }
